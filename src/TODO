@@ -1,0 +1,54 @@
+init()
+probe() / disconnect()
+open() / release()
+read() ... no write
+ioctl()
+grab()      // read isochronus
+callback()  // video stream
+
+
+--- Seance 1 ---
+init
+    6 ligne de code
+    usb_register()
+exit
+    3 ligne
+    usb_deregister
+probe
+    30 ligne
+        int to usbdev
+        intf-àltsetting->desc.binterfaceClass
+        ints vos URBs
+        init_completion()
+        usb_set_interface
+release
+    4 ligne
+    usb_set
+open 
+    usb_find_interface
+    file->private_data = qql chose qui a rapport avec une interface
+close
+    1 ligne de code
+    return ...
+    
+    
+struc
+    char buffer
+    usb_device_id
+    file_operation
+    usb_driver
+    usb_class_driver
+    
+    
+How to blacklist usb_driver :
+ /etc/modprobre.d/
+    blacklist snd_usb_audio
+    blacklist snd_usbmidi_lib
+    blacklist uvcvideo
+
+
+python
+
+def grab(self):
+    ioctl(self.fd, code, 0)
+    
