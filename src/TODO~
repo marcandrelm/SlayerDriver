@@ -46,8 +46,9 @@ How to blacklist usb_driver :
     blacklist snd_usbmidi_lib
     blacklist uvcvideo
 
-
+lsusb -v
 python
 
-de grab(self):
+def grab(self):
     ioctl(self.fd, code, 0)
+    

@@ -46,7 +46,6 @@
 #include <linux/slab.h>
 #include <linux/module.h>
 #include <linux/kref.h>
-//#include <linux/smp_lock.h> //does not exist //replace with semaphore
 #include <linux/spinlock.h>
 #include <linux/semaphore.h>
 #include <linux/usb.h>
@@ -59,13 +58,39 @@ MODULE_VERSION("1.0");
 MODULE_DESCRIPTION("ELE784: laboratory 2\nCamera USB driver");
 
 // Define [Def] ---------------------------------------------------------------
+// Debug options
+#define print_alert(...)  printk(KERN_ALERT DRIVER_TAG __VA_ARGS__); 
+#define print_warn(...)   printk(KERN_WARNING DRIVER_TAG __VA_ARGS__);
+#if (DEBUG > 0)
+    #define print_debug(...)  printk(KERN_DEBUG DRIVER_TAG __VA_ARGS__);
+    #define IS_CAPABLE  
+#else
+    #define print_debug(...)
+    //Cannot be Admin in the labs computer 
+    #define IS_CAPABLE  if(!capable (CAP_SYS_ADMIN)) { \
+                            print_alert("Not Admin") \
+                            return -EPERM; } 
+#endif
 
+// Vendor ID
 #define USB_CAM_VENDOR_ID0  (0x046D)
 #define USB_CAM_PRODUCT_ID0	(0x08CC)
 #define USB_CAM_VENDOR_ID1  (0x046D)
 #define USB_CAM_PRODUCT_ID1	(0x0994)
 
 #define USB_CAM_MINOR_BASE  (192)
+
+//IOCTL
+#define BUFF_IOC_MAGIC   (45)
+#define BUFF_IOC_MAX     (0x60)
+
+#define IOCTL_GET      _IOR (BUFF_IOC_MAGIC, 0x10, int)
+#define IOCTL_SET      _IOW (BUFF_IOC_MAGIC, 0x20, int)
+#define IOCTL_STREAMON _IOW (BUFF_IOC_MAGIC, 0x30, int)
+#define IOCTL_STREAMON _IOW (BUFF_IOC_MAGIC, 0x40, int)
+#define IOCTL_GRAB     _IOR (BUFF_IOC_MAGIC, 0x50, int)
+#define IOCTL_PANTILT  _IOR (BUFF_IOC_MAGIC, 0x60, int)
+
 
 #define to_cam_dev(d) container_of(d, struct usb_cam, kref)
 
@@ -85,13 +110,18 @@ struct usb_cam {
 	__u8		 bulk_out_endpointAddr; // the address of the bulk out endpoint   
 	struct kref  kref; //TODO verify what is kref
 };
-
+/*
+    char buffer
+    usb_device_id
+    file_operation
+    usb_driver
+    usb_class_driver
+*/
 
 // Enumeration [Enum] ---------------------------------------------------------
 
 // Function [Func] ------------------------------------------------------------
-int  cam_open    (struct inode *inode, struct file *file);
-int  cam_release (struct inode *inode, struct file *file);
+
 
 int  cam_probe     (struct usb_interface *interface, 
               const struct usb_device_id *id);
@@ -99,13 +129,23 @@ void cam_disconnect(struct usb_interface *interface)
                      
 void cam_delete  (struct kref *kref); //TODO what is this?
 
+int  cam_open    (struct inode *inode, struct file *file);
+int  cam_release (struct inode *inode, struct file *file);
+
+int  cam_ioctl   (struct inode *inode, struct file *file, unsigned int cmd,
+                  unsigned long arg);
+// grab 5 urb, isochronous
+// void cam_grab(void);
+
 ssize_t cam_read (struct file *file,       char __user *buffer, 
                     size_t count, loff_t *ppos);
 ssize_t cam_write(struct file *file, const char __user *user_buffer, 
-                    size_t count, loff_t *ppos);
+                    size_t count, loff_t *ppos); // to be killed
                         
 void cam_read_bulk_callback (struct urb *urb, struct pt_regs *regs);
-void cam_write_bulk_callback(struct urb *urb, struct pt_regs *regs);
+
+void cam_write_bulk_callback(struct urb *urb, struct pt_regs *regs); 
+// to be killed
 
 // Global Variable [GVar] -----------------------------------------------------
 struct file_operations cam_fops = {
@@ -140,48 +180,7 @@ struct usb_class_driver cam_class = {
 
 MODULE_DEVICE_TABLE (usb, cam_table); // Hotplug detect
 
-//-----------------------------------------------------------------------------
-static int cam_open(struct inode *inode, struct file *file) {
-	struct usb_cam *dev;
-	struct usb_interface *interface;
-	int subminor;
-	int retval = 0;
 
-	subminor = iminor(inode);
-
-	interface = usb_find_interface(&cam_driver, subminor);
-	if (!interface) {
-		err ("%s - error, can't find device for minor %d",
-		     __FUNCTION__, subminor);
-		retval = -ENODEV;
-		goto exit;
-	}
-
-	dev = usb_get_intfdata(interface);
-	if (!dev) {
-		retval = -ENODEV;
-		goto exit;
-	}
-	
-	// increment our usage count for the device   
-	kref_get(&dev->kref);
- 
-	file->private_data = dev;
-
-    exit: return retval;
-}
-//-----------------------------------------------------------------------------
-static int cam_release(struct inode *inode, struct file *file) {
-	struct usb_cam *dev;
-
-	dev = (struct usb_cam *)file->private_data;
-	if (dev == NULL)
-		return -ENODEV;
-
-	// decrement the count on our device   
-	kref_put(&dev->kref, cam_delete);
-	return 0;
-}
 //-----------------------------------------------------------------------------
 static int cam_probe(struct usb_interface *interface, 
                const struct usb_device_id *id) {
@@ -191,6 +190,8 @@ static int cam_probe(struct usb_interface *interface,
 	size_t buffer_size;
 	int i;
 	int retval = -ENOMEM;
+	
+	print_debug("%s \n\r",__FUNCTION__);
 
 	// allocate memory for our device state and initialize it
 	dev = kmalloc(sizeof(struct usb_cam), GFP_KERNEL);
@@ -251,12 +252,11 @@ static int cam_probe(struct usb_interface *interface,
 	}
 
 	// let the user know what node this device is now attached   
-	info("USB cameton device now attached to USBcam-%d", interface->minor);
+	info("USB cam device now attached to USBcam-%d", interface->minor);
 	return 0;
 
     error:
-	if (dev)
-		kref_put(&dev->kref, cam_delete);
+	if (dev) { kref_put(&dev->kref, cam_delete); }
 	return retval;
 }
 //-----------------------------------------------------------------------------
@@ -264,8 +264,10 @@ static void cam_disconnect(struct usb_interface *interface) {
 	struct usb_cam *dev;
 	int minor = interface->minor;
 
+    print_debug("%s \n\r",__FUNCTION__);
+
 	// prevent cam_open() from racing cam_disconnect() 
-	lock_kernel();
+	lock_kernel(); // replace with sem?
 
 	dev = usb_get_intfdata(interface);
 	usb_set_intfdata(interface, NULL);
@@ -273,27 +275,231 @@ static void cam_disconnect(struct usb_interface *interface) {
 	// give back our minor 
 	usb_deregister_dev(interface, &cam_class);
 
-	unlock_kernel();
+	unlock_kernel(); // replace with sem?
  
 	// decrement our usage count   
 	kref_put(&dev->kref, cam_delete);
 
-	info("USB cameton #%d now disconnected", minor);
+	info("USB cam #%d now disconnected", minor);
 }
 //-----------------------------------------------------------------------------
 static void cam_delete(struct kref *kref) {	
 	struct usb_cam *dev = to_cam_dev(kref);
+	
+	print_debug("%s \n\r",__FUNCTION__);
 
 	usb_put_dev(dev->udev);
 	kfree (dev->bulk_in_buffer);
 	kfree (dev);
 }
+//-----------------------------------------------------------------------------
+static int cam_open(struct inode *inode, struct file *file) {
+	struct usb_cam *dev;
+	struct usb_interface *interface;
+	int subminor;
+	int retval = 0;
 
+    print_debug("%s \n\r",__FUNCTION__);
+	subminor = iminor(inode);
+
+	interface = usb_find_interface(&cam_driver, subminor);
+	if (!interface) {
+		err ("%s - error, can't find device for minor %d",
+		     __FUNCTION__, subminor); 
+		return -ENODEV;
+	}
+
+	dev = usb_get_intfdata(interface);
+	if (!dev) { return -ENODEV; }
+	
+	// increment our usage count for the device   
+	kref_get(&dev->kref);
+ 
+	file->private_data = dev;
+
+    return retval;
+}
+//-----------------------------------------------------------------------------
+static int cam_release(struct inode *inode, struct file *file) {
+	struct usb_cam *dev;
+	
+	print_debug("%s \n\r",__FUNCTION__);
+
+	dev = (struct usb_cam *)file->private_data;
+	if (dev == NULL) { return -ENODEV; }
+
+	// decrement the count on our device   
+	kref_put(&dev->kref, cam_delete);
+	return 0;
+}
+//-----------------------------------------------------------------------------
+static int cam_ioctl (struct inode *inode, struct file *file, unsigned int cmd,
+                      unsigned long arg) {
+    /*
+    struct usb_interface *interface = file->private_data;
+    struct usb_device *dev = usb_get_intfdata(interface);
+    */ 
+    int retval = 0;
+    int tmp    = 0;    
+    struct usb_device *dev = usb_get_intfdata(file->private_data);
+    
+   
+
+    //IOC verification (MAGIC_nb/Valid_cmd/UserPtr)
+    if (_IOC_TYPE(cmd)!= BUFF_IOC_MAGIC) { return -ENOTTY; }
+    if (_IOC_NR  (cmd) > BUFF_IOC_MAX)   { return -ENOTTY; }
+    if (_IOC_DIR (cmd) & _IOC_READ) {
+        retval = !access_ok(VERIFY_WRITE, (void __user *)arg, _IOC_SIZE(cmd));
+    }
+    else if (_IOC_DIR(cmd) & _IOC_WRITE) {
+        retval = !access_ok(VERIFY_READ,  (void __user *)arg, _IOC_SIZE(cmd)); 
+    }
+    if (retval) { return -EFAULT; }
+    
+    //IOC commands
+    switch (cmd) {
+        case IOCTL_GET:
+            print_debug("GET");
+            /*
+            usb_device          Votre device USB
+            pipe                Endpoint #0 de type rcv
+            request             SET_CUR(0x81)/SET_MIN(0x82)/SET_MAX(0x83)/
+                                SET_RES(0x84)
+            requestType         USB_DIR_OUT | USB_TYPE_CLASS |
+                                USB_RECIP_INTERFACE
+            value               Processing Unit Control Selectors << 8
+            index               0x0200 
+            data                2 bytes
+            size                2 
+            timeout             0  
+            */
+            
+            /*
+            down(&BDev.SemBuf);
+            retval = buf_data(&Buffer);
+            retval = put_user(retval,(int __user*) arg);
+            up(&BDev.SemBuf);
+            */
+            return retval;
+
+        case IOCTL_SET:
+            print_debug("SET");
+            /*
+            usb_device          Votre device USB
+            pipe                Endpoint #0 de type SND
+            request             GET_CUR(0x81)/GET_MIN(0x82)/GET_MAX(0x83)/
+                                GET_RES(0x84)
+            requestType         USB_DIR_IN | USB_TYPE_CLASS |
+                                USB_RECIP_INTERFACE
+            value               Processing Unit Control Selectors << 8
+            index               0x0200 
+            data                NULL
+            size                2 (receive)
+            timeout             0  
+            */
+            
+            /*
+            IS_CAPABLE
+            if(!(filp->f_mode & FMODE_WRITE))       { return -ENOTTY; }
+            if(get_user(retval,(int __user *) arg)) { return -EFAULT; }
+
+            down(&BDev.SemBuf); 
+            print_alert("SETMAXOPEN");
+            if(retval < BDev.numOpen) {
+                print_alert("Illegal req r:%d u:%d", retval, BDev.numOpen);
+                up(&BDev.SemBuf); 
+                return -ENOBUFS; 
+            }
+            BDev.maxOpen = retval;
+            up(&BDev.SemBuf); 
+            */            
+            return SUCCESS;
+            
+        case IOCTL_STREAMON:
+            print_debug("STREAMON");
+            /*
+            usb_device          Votre device USB
+            pipe                Endpoint #0 de type SND
+            request             0x0B
+            requestType         USB_DIR_OUT | USB_TYPE_STANDARD |
+                                USB_RECIP_INTERFACE
+            value               0x0004
+            index               0x0001
+            data                Null
+            size                0
+            timeout             0 
+            */            
+            return SUCCESS;  
+            
+        case IOCTL_STREAMOFF:
+            print_debug("STREAMOFF");
+            /*
+            usb_device          Votre device USB
+            pipe                Endpoint #0 de type SND
+            request             0x0B
+            requestType         USB_DIR_OUT | USB_TYPE_STANDARD |
+                                USB_RECIP_INTERFACE
+            value               0x0000
+            index               0x0001
+            data                Null
+            size                0
+            timeout             0 
+            */
+            return SUCCESS;  
+            
+        case IOCTL_GRAB:
+            print_debug("GRAB");
+            return SUCCESS;
+            
+        case IOCTL_PANTILT:
+            print_debug("PANTILT");
+            /*
+            usb_device          Votre device USB
+            pipe                Endpoint #0 de type SND
+            request             0x01
+            requestType         USB_DIR_OUT | USB_TYPE_CLASS |
+                                USB_RECIP_INTERFACE
+            value               0x0100
+            index               0x0900
+            data                up/down/left/right
+            size                4
+            timeout             0 
+            
+            unsigned int up[4]    = { 0x00, 0x00, 0x80, 0xFF };
+            unsigned int down[4]  = { 0x00, 0x00, 0x80, 0x00 };
+            unsigned int Left[4]  = { 0x80, 0x00, 0x00, 0x00 };
+            unsigned int Right[4] = { 0x80, 0xFF, 0x00, 0x00 };
+            */
+              
+            return SUCCESS;  
+            
+        case IOCTL_PANTILT_RESET:
+            print_debug("PANTILT_RESET");
+            /*
+            usb_device          Votre device USB
+            pipe                Endpoint #0 de type SND
+            request             0x01
+            requestType         USB_DIR_OUT | USB_TYPE_CLASS |
+                                USB_RECIP_INTERFACE
+            value               0x0200
+            index               0x0900
+            data                0x03
+            size                1
+            timeout             0
+            */
+            return SUCCESS;     
+            
+        default : return -ENOTTY;  
+    }
+    return -ENOTTY;
+}
 //-----------------------------------------------------------------------------
 static ssize_t cam_read(struct file *file, char __user *buffer, size_t count, 
                         loff_t *ppos) {
 	struct usb_cam *dev;
 	int retval = 0;
+	
+	print_debug("%s \n\r",__FUNCTION__);
 
 	dev = (struct usb_cam *)file->private_data;
 	
@@ -322,6 +528,8 @@ static ssize_t cam_write(struct file *file, const char __user *user_buffer, size
 	int retval = 0;
 	struct urb *urb = NULL;
 	char *buf = NULL;
+	
+	print_debug("%s \n\r",__FUNCTION__);
 
 	dev = (struct usb_cam *)file->private_data;
 
@@ -373,7 +581,8 @@ static ssize_t cam_write(struct file *file, const char __user *user_buffer, size
 }
 //-----------------------------------------------------------------------------
 static void cam_read_bulk_callback(struct urb *urb, struct pt_regs *regs) {
-	dbg("cam_read_bulk_callback is not implemented"
+    print_debug("%s \n\r",__FUNCTION__);
+    print_debug("cam_read_bulk_callback is not implemented yet\n"); 
 	// sync/async unlink faults aren't errors 
 	  
 	//if ( urb->status && 
@@ -392,6 +601,11 @@ static void cam_read_bulk_callback(struct urb *urb, struct pt_regs *regs) {
 //-----------------------------------------------------------------------------
 static void cam_write_bulk_callback(struct urb *urb, struct pt_regs *regs) {
 	// sync/async unlink faults aren't errors   
+	
+	print_debug("%s \n\r",__FUNCTION__);
+	print_debug("cam_write_bulk_callback is to be removed\n"); 
+	
+	/*
 	if ( urb->status && 
 	   !(urb->status == -ENOENT || 
 	     urb->status == -ECONNRESET ||
@@ -403,6 +617,7 @@ static void cam_write_bulk_callback(struct urb *urb, struct pt_regs *regs) {
 	// free up our allocated buffer   
 	usb_buffer_free(urb->dev, urb->transfer_buffer_length, 
 			urb->transfer_buffer, urb->transfer_dma);
+	*/
 }
 
 
@@ -410,17 +625,21 @@ static void cam_write_bulk_callback(struct urb *urb, struct pt_regs *regs) {
 //-----------------------------------------------------------------------------
 static int __init USB_CAM_init(void) {
 	int result;
+	
+	print_debug("%s \n\r",__FUNCTION__);
 
 	// register this driver with the USB subsystem 
 	result = usb_register(&cam_driver);
-	if (result)
-		err("usb_register failed. Error number %d", result);
-
+	if (result) { 
+	    print_warn("%s : failed with error %d\n\r", _FUNCTION__,result);
+	}
+	
 	return result;
 }
 //-----------------------------------------------------------------------------
 static void __exit USB_CAM_exit(void) {
 	// deregister this driver with the USB subsystem
+	print_debug("%s \n\r",__FUNCTION__);
 	usb_deregister(&cam_driver);
 }
 
