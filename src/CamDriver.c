@@ -13,13 +13,13 @@
  Engineer      : Marc-Andre Lafaille Magnan
 
  Create Date   : 11:45:00 10/11/2014
- Project Name  : Char driver
+ Project Name  : CamDriver
  Target Devices: Orbitaf AF
  Tool versions : kernel 3.2.34etsele
  Description   : camera usb driver
  
  Revision:
- Revision 1.00 - Code is taped out for evaluation
+ Revision 0.01 - Constructing
  Additional Comments:
 
 -----------------------------------------------------------------------------*/
@@ -49,28 +49,24 @@
 #include <linux/spinlock.h>
 #include <linux/semaphore.h>
 #include <linux/usb.h>
-#include <asm/uaccess.h>
+#include <asm/uaccess.h> 
 
 // Licence [Lic] --------------------------------------------------------------
 MODULE_AUTHOR  ("Marc-Andre Lafaille Magnan");
 MODULE_LICENSE ("Dual BSD/GPL");
-MODULE_VERSION("1.0");
+MODULE_VERSION ("1.0");
 MODULE_DESCRIPTION("ELE784: laboratory 2\nCamera USB driver");
 
 // Define [Def] ---------------------------------------------------------------
-// Debug options
-#define print_alert(...)  printk(KERN_ALERT DRIVER_TAG __VA_ARGS__); 
-#define print_warn(...)   printk(KERN_WARNING DRIVER_TAG __VA_ARGS__);
-#if (DEBUG > 0)
-    #define print_debug(...)  printk(KERN_DEBUG DRIVER_TAG __VA_ARGS__);
-    #define IS_CAPABLE  
-#else
-    #define print_debug(...)
-    //Cannot be Admin in the labs computer 
-    #define IS_CAPABLE  if(!capable (CAP_SYS_ADMIN)) { \
-                            print_alert("Not Admin") \
-                            return -EPERM; } 
-#endif
+
+#define DEBUG               (1)
+#define SUCCESS             (0)
+#define DRIVER_TAG          "Cam_Udev:"
+#define DRIVER_NAME         "UsbCam"
+#define DRIVER_CNAME        "etsele_udev"
+#define READWRITE_BUFSIZE   (16)
+#define DEFAULT_BUFSIZE     (256)
+#define DEFAULT_MAXOPEN     (4) 
 
 // Vendor ID
 #define USB_CAM_VENDOR_ID0  (0x046D)
@@ -87,13 +83,27 @@ MODULE_DESCRIPTION("ELE784: laboratory 2\nCamera USB driver");
 #define IOCTL_GET      _IOR (BUFF_IOC_MAGIC, 0x10, int)
 #define IOCTL_SET      _IOW (BUFF_IOC_MAGIC, 0x20, int)
 #define IOCTL_STREAMON _IOW (BUFF_IOC_MAGIC, 0x30, int)
-#define IOCTL_STREAMON _IOW (BUFF_IOC_MAGIC, 0x40, int)
+#define IOCTL_STREAMOFF_IOW (BUFF_IOC_MAGIC, 0x40, int)
 #define IOCTL_GRAB     _IOR (BUFF_IOC_MAGIC, 0x50, int)
 #define IOCTL_PANTILT  _IOR (BUFF_IOC_MAGIC, 0x60, int)
 
 
 #define to_cam_dev(d) container_of(d, struct usb_cam, kref)
 
+// Debug options
+#define print_alert(...)  printk(KERN_ALERT DRIVER_TAG __VA_ARGS__); 
+#define print_warn(...)   printk(KERN_WARNING DRIVER_TAG __VA_ARGS__);
+#if (DEBUG > 0)
+    #define print_debug(...)  printk(KERN_DEBUG DRIVER_TAG __VA_ARGS__);
+    #define IS_CAPABLE  
+#else
+    #define print_debug(...)
+    //Cannot be Admin in the labs computer 
+    #define IS_CAPABLE  if(!capable (CAP_SYS_ADMIN)) { \
+                            print_alert("Not Admin") \
+                            return -EPERM; } 
+ #endif
+                           
 // Struct [Strc] --------------------------------------------------------------
 static struct usb_device_id cam_table [] = {
 	{ USB_DEVICE(USB_CAM_VENDOR_ID0, USB_CAM_PRODUCT_ID0) },
@@ -107,16 +117,12 @@ struct usb_cam {
 	unsigned char *	  bulk_in_buffer;   // the buffer to receive data   
 	size_t		 bulk_in_size;		    // the size of the receive buffer   
 	__u8		 bulk_in_endpointAddr;  // the address of the bulk in endpoint   
-	__u8		 bulk_out_endpointAddr; // the address of the bulk out endpoint   
+	__u8		 bulk_out_endpointAddr; // the address of the bulk out endpoint
+	__u8		 ID3_endpointAddr;      // reserved variable (must rename later)
+	__u8		 ID4_endpointAddr;      // reserved variable (must rename later)
+	__u8		 ID5_endpointAddr;      // reserved variable (must rename later)     
 	struct kref  kref; //TODO verify what is kref
 };
-/*
-    char buffer
-    usb_device_id
-    file_operation
-    usb_driver
-    usb_class_driver
-*/
 
 // Enumeration [Enum] ---------------------------------------------------------
 
@@ -125,7 +131,7 @@ struct usb_cam {
 
 int  cam_probe     (struct usb_interface *interface, 
               const struct usb_device_id *id);
-void cam_disconnect(struct usb_interface *interface)                     
+void cam_disconnect(struct usb_interface *interface);                     
                      
 void cam_delete  (struct kref *kref); //TODO what is this?
 
@@ -134,8 +140,7 @@ int  cam_release (struct inode *inode, struct file *file);
 
 int  cam_ioctl   (struct inode *inode, struct file *file, unsigned int cmd,
                   unsigned long arg);
-// grab 5 urb, isochronous
-// void cam_grab(void);
+
 
 ssize_t cam_read (struct file *file,       char __user *buffer, 
                     size_t count, loff_t *ppos);
@@ -144,8 +149,10 @@ ssize_t cam_write(struct file *file, const char __user *user_buffer,
                         
 void cam_read_bulk_callback (struct urb *urb, struct pt_regs *regs);
 
-void cam_write_bulk_callback(struct urb *urb, struct pt_regs *regs); 
-// to be killed
+void cam_write_bulk_callback(struct urb *urb, struct pt_regs *regs);
+    // to be killed
+void cam_grab (void); // Prototype TBD
+
 
 // Global Variable [GVar] -----------------------------------------------------
 struct file_operations cam_fops = {
@@ -260,7 +267,7 @@ static int cam_probe(struct usb_interface *interface,
 	return retval;
 }
 //-----------------------------------------------------------------------------
-static void cam_disconnect(struct usb_interface *interface) {
+void cam_disconnect(struct usb_interface *interface) {
 	struct usb_cam *dev;
 	int minor = interface->minor;
 
@@ -283,7 +290,7 @@ static void cam_disconnect(struct usb_interface *interface) {
 	info("USB cam #%d now disconnected", minor);
 }
 //-----------------------------------------------------------------------------
-static void cam_delete(struct kref *kref) {	
+void cam_delete(struct kref *kref) {	
 	struct usb_cam *dev = to_cam_dev(kref);
 	
 	print_debug("%s \n\r",__FUNCTION__);
@@ -293,7 +300,7 @@ static void cam_delete(struct kref *kref) {
 	kfree (dev);
 }
 //-----------------------------------------------------------------------------
-static int cam_open(struct inode *inode, struct file *file) {
+int cam_open(struct inode *inode, struct file *file) {
 	struct usb_cam *dev;
 	struct usb_interface *interface;
 	int subminor;
@@ -320,7 +327,7 @@ static int cam_open(struct inode *inode, struct file *file) {
     return retval;
 }
 //-----------------------------------------------------------------------------
-static int cam_release(struct inode *inode, struct file *file) {
+int cam_release(struct inode *inode, struct file *file) {
 	struct usb_cam *dev;
 	
 	print_debug("%s \n\r",__FUNCTION__);
@@ -333,7 +340,7 @@ static int cam_release(struct inode *inode, struct file *file) {
 	return 0;
 }
 //-----------------------------------------------------------------------------
-static int cam_ioctl (struct inode *inode, struct file *file, unsigned int cmd,
+int cam_ioctl (struct inode *inode, struct file *file, unsigned int cmd,
                       unsigned long arg) {
     /*
     struct usb_interface *interface = file->private_data;
@@ -494,7 +501,7 @@ static int cam_ioctl (struct inode *inode, struct file *file, unsigned int cmd,
     return -ENOTTY;
 }
 //-----------------------------------------------------------------------------
-static ssize_t cam_read(struct file *file, char __user *buffer, size_t count, 
+ssize_t cam_read(struct file *file, char __user *buffer, size_t count, 
                         loff_t *ppos) {
 	struct usb_cam *dev;
 	int retval = 0;
@@ -522,7 +529,7 @@ static ssize_t cam_read(struct file *file, char __user *buffer, size_t count,
 }
 
 //-----------------------------------------------------------------------------
-static ssize_t cam_write(struct file *file, const char __user *user_buffer, size_t count, loff_t *ppos)
+ssize_t cam_write(struct file *file, const char __user *user_buffer, size_t count, loff_t *ppos)
 {
 	struct usb_cam *dev;
 	int retval = 0;
@@ -580,7 +587,7 @@ static ssize_t cam_write(struct file *file, const char __user *user_buffer, size
 	return retval;
 }
 //-----------------------------------------------------------------------------
-static void cam_read_bulk_callback(struct urb *urb, struct pt_regs *regs) {
+void cam_read_bulk_callback(struct urb *urb, struct pt_regs *regs) {
     print_debug("%s \n\r",__FUNCTION__);
     print_debug("cam_read_bulk_callback is not implemented yet\n"); 
 	// sync/async unlink faults aren't errors 
@@ -599,7 +606,7 @@ static void cam_read_bulk_callback(struct urb *urb, struct pt_regs *regs) {
 	
 }
 //-----------------------------------------------------------------------------
-static void cam_write_bulk_callback(struct urb *urb, struct pt_regs *regs) {
+void cam_write_bulk_callback(struct urb *urb, struct pt_regs *regs) {
 	// sync/async unlink faults aren't errors   
 	
 	print_debug("%s \n\r",__FUNCTION__);
@@ -619,11 +626,13 @@ static void cam_write_bulk_callback(struct urb *urb, struct pt_regs *regs) {
 			urb->transfer_buffer, urb->transfer_dma);
 	*/
 }
-
-
-
 //-----------------------------------------------------------------------------
-static int __init USB_CAM_init(void) {
+void cam_grab (void){
+// utility for IOCTL
+// grab 5 urb, isochronous
+}
+//-----------------------------------------------------------------------------
+int __init USB_CAM_init(void) {
 	int result;
 	
 	print_debug("%s \n\r",__FUNCTION__);
@@ -637,7 +646,7 @@ static int __init USB_CAM_init(void) {
 	return result;
 }
 //-----------------------------------------------------------------------------
-static void __exit USB_CAM_exit(void) {
+void __exit USB_CAM_exit(void) {
 	// deregister this driver with the USB subsystem
 	print_debug("%s \n\r",__FUNCTION__);
 	usb_deregister(&cam_driver);

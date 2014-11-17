@@ -1,0 +1,19 @@
+GIT procedure:
+
+https://github.com/marcandrelm/SlayerDriver.git
+
+1st use: git clone https://github.com/marcandrelm/SlayerDriver.git
+this will fetch what you have on the repo and create a local version.
+
+every other use:
+git pull
+Fetches the files from the online repo
+
+git add *
+Stages new files to be committed
+
+git commit
+Commits the changes locally
+
+git push
+Pushes the files back to github.  Requires authentication.
