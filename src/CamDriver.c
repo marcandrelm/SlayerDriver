@@ -61,6 +61,7 @@ MODULE_DESCRIPTION("ELE784: laboratory 2\nCamera USB driver");
 
 #define DEBUG               (1)
 #define SUCCESS             (0)
+#define KBUILD_MODNAME 		("CamDriver") // Set Manualy MODNAME
 #define DRIVER_TAG          "Cam_Udev:"
 #define DRIVER_NAME         "UsbCam"
 #define DRIVER_CNAME        "etsele_udev"
@@ -80,21 +81,25 @@ MODULE_DESCRIPTION("ELE784: laboratory 2\nCamera USB driver");
 #define BUFF_IOC_MAGIC   (45)
 #define BUFF_IOC_MAX     (0x60)
 
-#define IOCTL_GET      _IOR (BUFF_IOC_MAGIC, 0x10, int)
-#define IOCTL_SET      _IOW (BUFF_IOC_MAGIC, 0x20, int)
-#define IOCTL_STREAMON _IOW (BUFF_IOC_MAGIC, 0x30, int)
-#define IOCTL_STREAMOFF_IOW (BUFF_IOC_MAGIC, 0x40, int)
-#define IOCTL_GRAB     _IOR (BUFF_IOC_MAGIC, 0x50, int)
-#define IOCTL_PANTILT  _IOR (BUFF_IOC_MAGIC, 0x60, int)
+#define IOCTL_GET       _IOR (BUFF_IOC_MAGIC, 0x10, int)
+#define IOCTL_SET       _IOW (BUFF_IOC_MAGIC, 0x20, int)
+#define IOCTL_STREAMON  _IOW (BUFF_IOC_MAGIC, 0x30, int)
+#define IOCTL_STREAMOFF _IOW (BUFF_IOC_MAGIC, 0x40, int)
+#define IOCTL_GRAB      _IOR (BUFF_IOC_MAGIC, 0x50, int)
+#define IOCTL_PANTILT   _IOR (BUFF_IOC_MAGIC, 0x60, int)
 
 
 #define to_cam_dev(d) container_of(d, struct usb_cam, kref)
 
 // Debug options
+	// Critical print (no sleep)
 #define print_alert(...)  printk(KERN_ALERT DRIVER_TAG __VA_ARGS__); 
+	// Warning print (may sleep)
 #define print_warn(...)   printk(KERN_WARNING DRIVER_TAG __VA_ARGS__);
 #if (DEBUG > 0)
+	// Debug print (may sleep), are removed on project release
     #define print_debug(...)  printk(KERN_DEBUG DRIVER_TAG __VA_ARGS__);
+	// Verify if system Admin
     #define IS_CAPABLE  
 #else
     #define print_debug(...)
@@ -142,8 +147,8 @@ int  cam_ioctl   (struct inode *inode, struct file *file, unsigned int cmd,
                   unsigned long arg);
 
 
-ssize_t cam_read (struct file *file,       char __user *buffer, 
-                    size_t count, loff_t *ppos);
+ssize_t cam_read (struct file *file,       char __user *buffer,
+				size_t count, loff_t *ppos);
 ssize_t cam_write(struct file *file, const char __user *user_buffer, 
                     size_t count, loff_t *ppos); // to be killed
                         
@@ -203,7 +208,7 @@ static int cam_probe(struct usb_interface *interface,
 	// allocate memory for our device state and initialize it
 	dev = kmalloc(sizeof(struct usb_cam), GFP_KERNEL);
 	if (dev == NULL) {
-		err("Out of memory");
+		print_alert("Out of memory");
 		goto error;
 	}
 	memset(dev, 0x00, sizeof (*dev));
@@ -228,7 +233,7 @@ static int cam_probe(struct usb_interface *interface,
 			dev->bulk_in_endpointAddr = endpoint->bEndpointAddress;
 			dev->bulk_in_buffer = kmalloc(buffer_size, GFP_KERNEL);
 			if (!dev->bulk_in_buffer) {
-				err("Could not allocate bulk_in_buffer");
+				print_alert("Could not allocate bulk_in_buffer");
 				goto error;
 			}
 		}
@@ -242,7 +247,8 @@ static int cam_probe(struct usb_interface *interface,
 		}
 	}
 	if (!(dev->bulk_in_endpointAddr && dev->bulk_out_endpointAddr)) {
-		err("Could not find both bulk-in and bulk-out endpoints");
+
+		print_alert("Could not find both bulk-in and bulk-out endpoints");
 		goto error;
 	}
 
@@ -253,7 +259,7 @@ static int cam_probe(struct usb_interface *interface,
 	retval = usb_register_dev(interface, &cam_class);
 	if (retval) {
 		// something prevented us from registering this driver   
-		err("Not able to get a minor for this device.");
+		print_alert("Not able to get a minor for this device.");
 		usb_set_intfdata(interface, NULL);
 		goto error;
 	}
@@ -311,8 +317,8 @@ int cam_open(struct inode *inode, struct file *file) {
 
 	interface = usb_find_interface(&cam_driver, subminor);
 	if (!interface) {
-		err ("%s - error, can't find device for minor %d",
-		     __FUNCTION__, subminor); 
+		print_alert("%s - error, can't find device for minor %d",
+					__FUNCTION__, subminor);
 		return -ENODEV;
 	}
 
@@ -460,6 +466,7 @@ int cam_ioctl (struct inode *inode, struct file *file, unsigned int cmd,
             
         case IOCTL_PANTILT:
             print_debug("PANTILT");
+            // if 0x60  -> IOCTL_PANTILT
             /*
             usb_device          Votre device USB
             pipe                Endpoint #0 de type SND
@@ -477,24 +484,21 @@ int cam_ioctl (struct inode *inode, struct file *file, unsigned int cmd,
             unsigned int Left[4]  = { 0x80, 0x00, 0x00, 0x00 };
             unsigned int Right[4] = { 0x80, 0xFF, 0x00, 0x00 };
             */
-              
-            return SUCCESS;  
             
-        case IOCTL_PANTILT_RESET:
-            print_debug("PANTILT_RESET");
+            // if 0x61  -> IOCTL_PANTILT_RESET
             /*
-            usb_device          Votre device USB
-            pipe                Endpoint #0 de type SND
-            request             0x01
-            requestType         USB_DIR_OUT | USB_TYPE_CLASS |
-                                USB_RECIP_INTERFACE
-            value               0x0200
-            index               0x0900
-            data                0x03
-            size                1
-            timeout             0
-            */
-            return SUCCESS;     
+             usb_device          Votre device USB
+             pipe                Endpoint #0 de type SND
+             request             0x01
+             requestType         USB_DIR_OUT | USB_TYPE_CLASS |
+                                 USB_RECIP_INTERFACE
+             value               0x0200
+             index               0x0900
+             data                0x03
+             size                1
+             timeout             0
+             */
+            return SUCCESS;
             
         default : return -ENOTTY;  
     }
@@ -515,7 +519,7 @@ ssize_t cam_read(struct file *file, char __user *buffer, size_t count,
 			      usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointAddr),
 			      dev->bulk_in_buffer,
 			      min(dev->bulk_in_size, count),
-			      &count, HZ*10);
+			      &count, 10); //TODO  int timeout was equal to HZ*10
 
 	// if the read was successful, copy the data to userspace   
 	if (!retval) {
@@ -570,7 +574,7 @@ ssize_t cam_write(struct file *file, const char __user *user_buffer, size_t coun
 	// send the data out the bulk port   
 	retval = usb_submit_urb(urb, GFP_KERNEL);
 	if (retval) {
-		err("%s - failed submitting write urb, error %d", __FUNCTION__, retval);
+		print_alert("%s - failed submitting write urb, error %d", __FUNCTION__, retval);
 		goto error;
 	}
 
@@ -633,14 +637,16 @@ void cam_grab (void){
 }
 //-----------------------------------------------------------------------------
 int __init USB_CAM_init(void) {
+
 	int result;
-	
+	int KBUILD_MODNAME = 1; // Set Manualy MODNAME
 	print_debug("%s \n\r",__FUNCTION__);
 
 	// register this driver with the USB subsystem 
-	result = usb_register(&cam_driver);
+
+	result = usb_register_driver(&cam_driver, THIS_MODULE, KBUILD_MODNAME);
 	if (result) { 
-	    print_warn("%s : failed with error %d\n\r", _FUNCTION__,result);
+	    print_warn("%s : failed with error %d\n\r", __FUNCTION__,result);
 	}
 	
 	return result;
@@ -653,7 +659,9 @@ void __exit USB_CAM_exit(void) {
 }
 
 //-----------------------------------------------------------------------------
+//TODO forgot some include?
+
 module_init (USB_CAM_init);
-module_exit (USB_CAM_exit);
+module_exit (USB_CAM_exit));
 
 // EOF ------------------------------------------------------------------------
