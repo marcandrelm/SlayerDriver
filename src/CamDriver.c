@@ -50,6 +50,8 @@
 #include <linux/semaphore.h>
 #include <linux/usb.h>
 #include <asm/uaccess.h> 
+#include <linux/sched/rt.h>
+#include <linux/export.h>
 
 // Licence [Lic] --------------------------------------------------------------
 MODULE_AUTHOR  ("Marc-Andre Lafaille Magnan");
@@ -61,7 +63,6 @@ MODULE_DESCRIPTION("ELE784: laboratory 2\nCamera USB driver");
 
 #define DEBUG               (1)
 #define SUCCESS             (0)
-#define KBUILD_MODNAME 		("CamDriver") // Set Manualy MODNAME
 #define DRIVER_TAG          "Cam_Udev:"
 #define DRIVER_NAME         "UsbCam"
 #define DRIVER_CNAME        "etsele_udev"
@@ -134,7 +135,7 @@ struct usb_cam {
 // Function [Func] ------------------------------------------------------------
 
 
-int  cam_probe     (struct usb_interface *interface, 
+static int  cam_probe     (struct usb_interface *interface, 
               const struct usb_device_id *id);
 void cam_disconnect(struct usb_interface *interface);                     
                      
@@ -143,9 +144,7 @@ void cam_delete  (struct kref *kref); //TODO what is this?
 int  cam_open    (struct inode *inode, struct file *file);
 int  cam_release (struct inode *inode, struct file *file);
 
-int  cam_ioctl   (struct inode *inode, struct file *file, unsigned int cmd,
-                  unsigned long arg);
-
+int  cam_ioctl  (struct usb_interface *interface, unsigned int code,void *buf);
 
 ssize_t cam_read (struct file *file,       char __user *buffer,
 				size_t count, loff_t *ppos);
@@ -169,11 +168,12 @@ struct file_operations cam_fops = {
 };
 
 struct usb_driver cam_driver = {
-	.owner      = THIS_MODULE,
-	.name       = "camera",
-	.id_table   = cam_table,
-	.probe      = cam_probe,
-	.disconnect = cam_disconnect,
+	//.owner          = THIS_MODULE, //dosen't seem needed? Gives compile error
+	.name           = "ELE784-camdriver",
+	.id_table       = cam_table,
+	.probe          = cam_probe,
+	.disconnect     = cam_disconnect,
+	.unlocked_ioctl = cam_ioctl,
 };
 
 /* 
@@ -183,10 +183,13 @@ struct usb_driver cam_driver = {
 struct usb_class_driver cam_class = {
 	.name = "usb/cam%d",
 	.fops = &cam_fops,
-	.mode = S_IFCHR | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH,
+	//.mode = S_IFCHR | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH,
+	//seems invalid field
 	.minor_base = USB_CAM_MINOR_BASE,
+	//.devnode //What's this used for?
 };
 
+static DEFINE_SPINLOCK(cam_lock);
 
 // Function definition [Fdef] -------------------------------------------------
 
@@ -265,7 +268,7 @@ static int cam_probe(struct usb_interface *interface,
 	}
 
 	// let the user know what node this device is now attached   
-	info("USB cam device now attached to USBcam-%d", interface->minor);
+	printk(KERN_WARNING "USB cam device now attached to USBcam-%d", interface->minor);
 	return 0;
 
     error:
@@ -280,7 +283,7 @@ void cam_disconnect(struct usb_interface *interface) {
     print_debug("%s \n\r",__FUNCTION__);
 
 	// prevent cam_open() from racing cam_disconnect() 
-	lock_kernel(); // replace with sem?
+	spin_lock(&cam_lock); 
 
 	dev = usb_get_intfdata(interface);
 	usb_set_intfdata(interface, NULL);
@@ -288,12 +291,12 @@ void cam_disconnect(struct usb_interface *interface) {
 	// give back our minor 
 	usb_deregister_dev(interface, &cam_class);
 
-	unlock_kernel(); // replace with sem?
+	spin_unlock(&cam_lock);
  
 	// decrement our usage count   
 	kref_put(&dev->kref, cam_delete);
 
-	info("USB cam #%d now disconnected", minor);
+	printk(KERN_WARNING "USB cam #%d now disconnected", minor);
 }
 //-----------------------------------------------------------------------------
 void cam_delete(struct kref *kref) {	
@@ -346,18 +349,18 @@ int cam_release(struct inode *inode, struct file *file) {
 	return 0;
 }
 //-----------------------------------------------------------------------------
-int cam_ioctl (struct inode *inode, struct file *file, unsigned int cmd,
-                      unsigned long arg) {
+int cam_ioctl (struct usb_interface *interface, unsigned int code,void *buf) {
     /*
     struct usb_interface *interface = file->private_data;
     struct usb_device *dev = usb_get_intfdata(interface);
     */ 
+    
     int retval = 0;
     int tmp    = 0;    
-    struct usb_device *dev = usb_get_intfdata(file->private_data);
+    //struct usb_device *dev = usb_get_intfdata(file->private_data);
     
    
-
+    /*
     //IOC verification (MAGIC_nb/Valid_cmd/UserPtr)
     if (_IOC_TYPE(cmd)!= BUFF_IOC_MAGIC) { return -ENOTTY; }
     if (_IOC_NR  (cmd) > BUFF_IOC_MAX)   { return -ENOTTY; }
@@ -368,9 +371,9 @@ int cam_ioctl (struct inode *inode, struct file *file, unsigned int cmd,
         retval = !access_ok(VERIFY_READ,  (void __user *)arg, _IOC_SIZE(cmd)); 
     }
     if (retval) { return -EFAULT; }
-    
+    */
     //IOC commands
-    switch (cmd) {
+    switch (code) {
         case IOCTL_GET:
             print_debug("GET");
             /*
@@ -554,8 +557,9 @@ ssize_t cam_write(struct file *file, const char __user *user_buffer, size_t coun
 		retval = -ENOMEM;
 		goto error;
 	}
-
-	buf = usb_buffer_alloc(dev->udev, count, GFP_KERNEL, &urb->transfer_dma);
+    
+	//buf = usb_buffer_alloc(dev->udev, count, GFP_KERNEL, &urb->transfer_dma);
+	// had to comment all instances of usb_buffer_alloc and usb_buffer_free
 	if (!buf) {
 		retval = -ENOMEM;
 		goto error;
@@ -585,7 +589,8 @@ ssize_t cam_write(struct file *file, const char __user *user_buffer, size_t coun
     exit: return count;
 
     error:
-	usb_buffer_free(dev->udev, count, buf, urb->transfer_dma);
+	//usb_buffer_free(dev->udev, count, buf, urb->transfer_dma);
+	// had to comment all instances of usb_buffer_alloc and usb_buffer_free
 	usb_free_urb(urb);
 	kfree(buf);
 	return retval;
@@ -606,6 +611,7 @@ void cam_read_bulk_callback(struct urb *urb, struct pt_regs *regs) {
 
 	//// free up our allocated buffer   
 	//usb_buffer_free(urb->dev, urb->transfer_buffer_length, 
+	// had to comment all instances of usb_buffer_alloc and usb_buffer_free
 	//		urb->transfer_buffer, urb->transfer_dma);
 	
 }
@@ -626,7 +632,8 @@ void cam_write_bulk_callback(struct urb *urb, struct pt_regs *regs) {
 	}
 
 	// free up our allocated buffer   
-	usb_buffer_free(urb->dev, urb->transfer_buffer_length, 
+	//usb_buffer_free(urb->dev, urb->transfer_buffer_length, 
+	// had to comment all instances of usb_buffer_alloc and usb_buffer_free
 			urb->transfer_buffer, urb->transfer_dma);
 	*/
 }
@@ -638,13 +645,14 @@ void cam_grab (void){
 //-----------------------------------------------------------------------------
 int __init USB_CAM_init(void) {
 
+    printk(KERN_WARNING "ELE784 -> Init \n\r");
 	int result;
-	int KBUILD_MODNAME = 1; // Set Manualy MODNAME
+//	int KBUILD_MODNAME = 1; // Set Manualy MODNAME
 	print_debug("%s \n\r",__FUNCTION__);
-
+	
+	
 	// register this driver with the USB subsystem 
-
-	result = usb_register_driver(&cam_driver, THIS_MODULE, KBUILD_MODNAME);
+	result = usb_register_driver(&cam_driver,THIS_MODULE, KBUILD_MODNAME);
 	if (result) { 
 	    print_warn("%s : failed with error %d\n\r", __FUNCTION__,result);
 	}
@@ -662,6 +670,6 @@ void __exit USB_CAM_exit(void) {
 //TODO forgot some include?
 
 module_init (USB_CAM_init);
-module_exit (USB_CAM_exit));
+module_exit (USB_CAM_exit);
 
 // EOF ------------------------------------------------------------------------
