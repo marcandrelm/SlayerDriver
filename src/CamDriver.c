@@ -356,7 +356,7 @@ int cam_ioctl (struct usb_interface *interface, unsigned int code,void *buf) {
     */ 
     
     int retval = 0;
-    int tmp    = 0;    
+    //int tmp    = 0;    
     //struct usb_device *dev = usb_get_intfdata(file->private_data);
     
    
@@ -522,7 +522,7 @@ ssize_t cam_read(struct file *file, char __user *buffer, size_t count,
 			      usb_rcvbulkpipe(dev->udev, dev->bulk_in_endpointAddr),
 			      dev->bulk_in_buffer,
 			      min(dev->bulk_in_size, count),
-			      &count, 10); //TODO  int timeout was equal to HZ*10
+			      (int *) &count, 10); //TODO  int timeout was equal to HZ*10
 
 	// if the read was successful, copy the data to userspace   
 	if (!retval) {
@@ -644,17 +644,14 @@ void cam_grab (void){
 }
 //-----------------------------------------------------------------------------
 int __init USB_CAM_init(void) {
-
-    printk(KERN_WARNING "ELE784 -> Init \n\r");
 	int result;
 //	int KBUILD_MODNAME = 1; // Set Manualy MODNAME
-	print_debug("%s \n\r",__FUNCTION__);
-	
+    printk(KERN_WARNING "ELE784 -> Init \n\r");
 	
 	// register this driver with the USB subsystem 
 	result = usb_register_driver(&cam_driver,THIS_MODULE, KBUILD_MODNAME);
 	if (result) { 
-	    print_warn("%s : failed with error %d\n\r", __FUNCTION__,result);
+	    printk(KERN_ALERT"%s : failed with error %d\n\r", __FUNCTION__,result);
 	}
 	
 	return result;
