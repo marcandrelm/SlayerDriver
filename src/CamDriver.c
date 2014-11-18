@@ -80,7 +80,7 @@ MODULE_DESCRIPTION("ELE784: laboratory 2\nCamera USB driver");
 
 //IOCTL
 #define BUFF_IOC_MAGIC   (45)
-#define BUFF_IOC_MAX     (0x60)
+#define BUFF_IOC_MAX     (0x6F)
 
 #define IOCTL_GET       _IOR (BUFF_IOC_MAGIC, 0x10, int)
 #define IOCTL_SET       _IOW (BUFF_IOC_MAGIC, 0x20, int)

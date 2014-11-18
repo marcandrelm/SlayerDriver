@@ -1,0 +1,1 @@
+cmd_/home/parallels/SlayerDriver/src/CamDriver.ko := ld -r -m elf_x86_64 -T /usr/src/linux-headers-3.13.0-37-generic/scripts/module-common.lds --build-id  -o /home/parallels/SlayerDriver/src/CamDriver.ko /home/parallels/SlayerDriver/src/CamDriver.o /home/parallels/SlayerDriver/src/CamDriver.mod.o

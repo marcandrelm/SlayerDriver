@@ -1,26 +1,28 @@
-TARGET_MODULE:=CamDriver
-
-# If we are running by kernel building system
 ifneq ($(KERNELRELEASE),)
-	obj-m := $(TARGET_MODULE).o
+# call from kernel build system
 
-# If we running without kernel build system
+obj-m := CamDriver.o
+
 else
-	BUILDSYSTEM_DIR:=/lib/modules/$(shell uname -r)/build
-	PWD:=$(shell pwd)
 
-all :
-# run kernel build system to make module
-	$(MAKE) -C $(BUILDSYSTEM_DIR) M=$(PWD) modules
+KERNELDIR ?= /lib/modules/$(shell uname -r)/build
+PWD       := $(shell pwd)
+
+modules:
+	$(MAKE) -C $(KERNELDIR) M=$(PWD) modules
+
+endif
+
+install:
+	cp -p *.ko /tmp/
 
 clean:
-# run kernel build system to cleanup in current directory
-	$(MAKE) -C $(BUILDSYSTEM_DIR) M=$(PWD) clean
+	rm -rf *.o *~ core .depend .*.cmd *.mod.c .tmp_versions
 
-load:
-	sudo insmod ./$(TARGET_MODULE).ko
+depend .depend dep:
+	$(CC) $(CFLAGS) $(EXTRA_CFLAGS) -M *.c > .depend
 
-unload:
-	sudo rmmod ./$(TARGET_MODULE).ko
 
+ifeq (.depend,$(wildcard .depend))
+include .depend
 endif
