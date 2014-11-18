@@ -659,7 +659,8 @@ int __init USB_CAM_init(void) {
 //-----------------------------------------------------------------------------
 void __exit USB_CAM_exit(void) {
 	// deregister this driver with the USB subsystem
-	print_debug("%s \n\r",__FUNCTION__);
+	printk(KERN_WARNING"ELE784-Cleanup");
+	printk(KERN_WARNING"%s \n\r",__FUNCTION__);
 	usb_deregister(&cam_driver);
 }
 
