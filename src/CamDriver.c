@@ -82,13 +82,15 @@ MODULE_DESCRIPTION("ELE784: laboratory 2\nCamera USB driver");
 #define BUFF_IOC_MAGIC   (45)
 #define BUFF_IOC_MAX     (0x6F)
 
-#define IOCTL_GET       _IOR (BUFF_IOC_MAGIC, 0x10, int)
-#define IOCTL_SET       _IOW (BUFF_IOC_MAGIC, 0x20, int)
-#define IOCTL_STREAMON  _IOW (BUFF_IOC_MAGIC, 0x30, int)
-#define IOCTL_STREAMOFF _IOW (BUFF_IOC_MAGIC, 0x40, int)
-#define IOCTL_GRAB      _IOR (BUFF_IOC_MAGIC, 0x50, int)
-#define IOCTL_PANTILT   _IOR (BUFF_IOC_MAGIC, 0x60, int)
+#define IOCTL_GET               _IOR (BUFF_IOC_MAGIC, 0x10, int)
+#define IOCTL_SET               _IOW (BUFF_IOC_MAGIC, 0x20, int)
+#define IOCTL_STREAMON          _IOW (BUFF_IOC_MAGIC, 0x30, int)
+#define IOCTL_STREAMOFF         _IOW (BUFF_IOC_MAGIC, 0x40, int)
+#define IOCTL_GRAB              _IOR (BUFF_IOC_MAGIC, 0x50, int)
+#define IOCTL_PANTILT           _IOW (BUFF_IOC_MAGIC, 0x60, int)
+#define IOCTL_PANTILT_RESEST    _IOW (BUFF_IOC_MAGIC, 0x61, int)
 
+//what is IOCTL, GRAB FOR ????----------------------------------------
 
 #define to_cam_dev(d) container_of(d, struct usb_cam, kref)
 
@@ -144,7 +146,7 @@ void cam_delete  (struct kref *kref); //TODO what is this?
 static int  ele784_open    (struct inode *inode, struct file *file);
 int  cam_release (struct inode *inode, struct file *file);
 
-int  cam_ioctl  (struct usb_interface *interface, unsigned int code,void *buf);
+long  cam_ioctl  (struct file *file, unsigned int cmd, unsigned long arg);
 
 ssize_t cam_read (struct file *file,       char __user *buffer,
 				size_t count, loff_t *ppos);
@@ -165,6 +167,7 @@ struct file_operations cam_fops = {
 	.write =	cam_write,
 	.open =		ele784_open,
 	.release =	cam_release,
+	.unlocked_ioctl = cam_ioctl,
 };
 
 struct usb_driver cam_driver = {
@@ -173,7 +176,6 @@ struct usb_driver cam_driver = {
 	.id_table       = cam_table,
 	.probe          = cam_probe,
 	.disconnect     = cam_disconnect,
-	.unlocked_ioctl = cam_ioctl,
 };
 
 /* 
@@ -346,18 +348,16 @@ int cam_release(struct inode *inode, struct file *file) {
 	return 0;
 }
 //-----------------------------------------------------------------------------
-int cam_ioctl (struct usb_interface *interface, unsigned int code,void *buf) {
-    /*
+long  cam_ioctl  (struct file *file, unsigned int cmd, unsigned long arg) {
+    
     struct usb_interface *interface = file->private_data;
     struct usb_device *dev = usb_get_intfdata(interface);
-    */ 
     
     int retval = 0;
-    //int tmp    = 0;    
-    //struct usb_device *dev = usb_get_intfdata(file->private_data);
+    int tmp    = 0;    
     
    
-    /*
+    
     //IOC verification (MAGIC_nb/Valid_cmd/UserPtr)
     if (_IOC_TYPE(cmd)!= BUFF_IOC_MAGIC) { return -ENOTTY; }
     if (_IOC_NR  (cmd) > BUFF_IOC_MAX)   { return -ENOTTY; }
@@ -368,9 +368,8 @@ int cam_ioctl (struct usb_interface *interface, unsigned int code,void *buf) {
         retval = !access_ok(VERIFY_READ,  (void __user *)arg, _IOC_SIZE(cmd)); 
     }
     if (retval) { return -EFAULT; }
-    */
     //IOC commands
-    switch (code) {
+    switch (cmd) {
         case IOCTL_GET:
             print_debug("GET");
             /*
@@ -391,7 +390,6 @@ int cam_ioctl (struct usb_interface *interface, unsigned int code,void *buf) {
             down(&BDev.SemBuf);
             retval = buf_data(&Buffer);
             retval = put_user(retval,(int __user*) arg);
-            up(&BDev.SemBuf);
             */
             return retval;
 
@@ -411,21 +409,6 @@ int cam_ioctl (struct usb_interface *interface, unsigned int code,void *buf) {
             timeout             0  
             */
             
-            /*
-            IS_CAPABLE
-            if(!(filp->f_mode & FMODE_WRITE))       { return -ENOTTY; }
-            if(get_user(retval,(int __user *) arg)) { return -EFAULT; }
-
-            down(&BDev.SemBuf); 
-            print_alert("SETMAXOPEN");
-            if(retval < BDev.numOpen) {
-                print_alert("Illegal req r:%d u:%d", retval, BDev.numOpen);
-                up(&BDev.SemBuf); 
-                return -ENOBUFS; 
-            }
-            BDev.maxOpen = retval;
-            up(&BDev.SemBuf); 
-            */            
             return SUCCESS;
             
         case IOCTL_STREAMON:
