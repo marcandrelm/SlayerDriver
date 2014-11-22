@@ -141,7 +141,7 @@ void cam_disconnect(struct usb_interface *interface);
                      
 void cam_delete  (struct kref *kref); //TODO what is this?
 
-int  cam_open    (struct inode *inode, struct file *file);
+static int  ele784_open    (struct inode *inode, struct file *file);
 int  cam_release (struct inode *inode, struct file *file);
 
 int  cam_ioctl  (struct usb_interface *interface, unsigned int code,void *buf);
@@ -163,7 +163,7 @@ struct file_operations cam_fops = {
 	.owner =	THIS_MODULE,
 	.read =		cam_read,
 	.write =	cam_write,
-	.open =		cam_open,
+	.open =		ele784_open,
 	.release =	cam_release,
 };
 
@@ -214,11 +214,12 @@ static int cam_probe(struct usb_interface *interface,
 		print_alert("Out of memory");
 		goto error;
 	}
-	memset(dev, 0x00, sizeof (*dev));
+	memset(dev, 0x00, sizeof (*dev)); //What does this do??----------------------------
 	kref_init(&dev->kref);
 
-	dev->udev = usb_get_dev(interface_to_usbdev(interface));
+	dev->udev = usb_get_dev(interface_to_usbdev(interface)); 
 	dev->interface = interface;
+	//Afficher tout es endpoints disponibes??------------------------------------------
 
 	// set up the endpoint information   
 	// use only the first bulk-in and bulk-out endpoints   
@@ -249,12 +250,15 @@ static int cam_probe(struct usb_interface *interface,
 			dev->bulk_out_endpointAddr = endpoint->bEndpointAddress;
 		}
 	}
+	/*
 	if (!(dev->bulk_in_endpointAddr && dev->bulk_out_endpointAddr)) {
 
 		print_alert("Could not find both bulk-in and bulk-out endpoints");
 		goto error;
 	}
-
+    */  //there are no bulk enpoints in this device (in theory) so why check
+        //for them.  Shoulden't we be looking for isocharus instead???----------------
+    
 	// save our data pointer in this interface device   
 	usb_set_intfdata(interface, dev);
 
@@ -267,6 +271,7 @@ static int cam_probe(struct usb_interface *interface,
 		goto error;
 	}
 
+    // usb_set_interface (dev, interface->desc.bInterfaceNumber, activeInterface); ???
 	// let the user know what node this device is now attached   
 	printk(KERN_WARNING "USB cam device now attached to USBcam-%d", interface->minor);
 	return 0;
@@ -309,31 +314,23 @@ void cam_delete(struct kref *kref) {
 	kfree (dev);
 }
 //-----------------------------------------------------------------------------
-int cam_open(struct inode *inode, struct file *file) {
-	struct usb_cam *dev;
-	struct usb_interface *interface;
-	int subminor;
-	int retval = 0;
-
-    print_debug("%s \n\r",__FUNCTION__);
-	subminor = iminor(inode);
-
-	interface = usb_find_interface(&cam_driver, subminor);
-	if (!interface) {
-		print_alert("%s - error, can't find device for minor %d",
-					__FUNCTION__, subminor);
-		return -ENODEV;
-	}
-
-	dev = usb_get_intfdata(interface);
-	if (!dev) { return -ENODEV; }
-	
-	// increment our usage count for the device   
-	kref_get(&dev->kref);
- 
-	file->private_data = dev;
-
-    return retval;
+static int ele784_open(struct inode *inode, struct file *file)
+{
+    struct usb_interface *intf;
+    int subminor;
+    
+    printk(KERN_WARNING "ELE784 -> Open \n\r");
+    
+    subminor = iminor(inode);
+    
+    intf = usb_find_interface(&cam_driver, subminor);
+    if (!intf) {
+        printk(KERN_WARNING "ELE784 -> Open: Ne peux ouvrir le peripherique");
+        return -ENODEV;
+    }
+    
+    file->private_data = intf;
+    return 0;
 }
 //-----------------------------------------------------------------------------
 int cam_release(struct inode *inode, struct file *file) {
