@@ -88,7 +88,7 @@ MODULE_DESCRIPTION("ELE784: laboratory 2\nCamera USB driver");
 #define IOCTL_STREAMOFF         _IOW (BUFF_IOC_MAGIC, 0x40, int)
 #define IOCTL_GRAB              _IOR (BUFF_IOC_MAGIC, 0x50, int)
 #define IOCTL_PANTILT           _IOW (BUFF_IOC_MAGIC, 0x60, int)
-#define IOCTL_PANTILT_RESEST    _IOW (BUFF_IOC_MAGIC, 0x61, int)
+#define IOCTL_PANTILT_RESET    _IOW (BUFF_IOC_MAGIC, 0x61, int)
 
 //what is IOCTL, GRAB FOR ????----------------------------------------
 
@@ -137,7 +137,7 @@ struct usb_cam {
 // Function [Func] ------------------------------------------------------------
 
 
-static int  cam_probe     (struct usb_interface *interface, 
+static int  cam_probe     (struct usb_interface *intf, 
               const struct usb_device_id *id);
 void cam_disconnect(struct usb_interface *interface);                     
                      
@@ -183,12 +183,9 @@ struct usb_driver cam_driver = {
   and to have the device registered with devfs and the driver core
 */
 struct usb_class_driver cam_class = {
-	.name = "usb/cam%d",
+	.name = "elecam%d",
 	.fops = &cam_fops,
-	//.mode = S_IFCHR | S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH,
-	//seems invalid field
 	.minor_base = USB_CAM_MINOR_BASE,
-	//.devnode //What's this used for?
 };
 
 static DEFINE_SPINLOCK(cam_lock);
@@ -199,16 +196,16 @@ MODULE_DEVICE_TABLE (usb, cam_table); // Hotplug detect
 
 
 //-----------------------------------------------------------------------------
-static int cam_probe(struct usb_interface *interface, 
+static int cam_probe(struct usb_interface *intf, 
                const struct usb_device_id *id) {
 	struct usb_cam                  *dev = NULL;
-	struct usb_host_interface       *iface_desc;
+	const struct usb_host_interface *interface;
 	struct usb_endpoint_descriptor  *endpoint;
 	size_t buffer_size;
-	int i;
+    int n, m, altSetNum, activeInterface = -1;
 	int retval = -ENOMEM;
 	
-	print_debug("%s \n\r",__FUNCTION__);
+	print_debug("%s \n",__FUNCTION__);
 
 	// allocate memory for our device state and initialize it
 	dev = kmalloc(sizeof(struct usb_cam), GFP_KERNEL);
@@ -216,64 +213,30 @@ static int cam_probe(struct usb_interface *interface,
 		print_alert("Out of memory");
 		goto error;
 	}
-	memset(dev, 0x00, sizeof (*dev)); //What does this do??----------------------------
+	memset(dev, 0x00, sizeof (*dev));
 	kref_init(&dev->kref);
 
-	dev->udev = usb_get_dev(interface_to_usbdev(interface)); 
-	dev->interface = interface;
-	//Afficher tout es endpoints disponibes??------------------------------------------
+	dev->udev = usb_get_dev(interface_to_usbdev(intf)); 
 
-	// set up the endpoint information   
-	// use only the first bulk-in and bulk-out endpoints   
-	iface_desc = interface->cur_altsetting;
-	for (i = 0; i < iface_desc->desc.bNumEndpoints; ++i) {
-		endpoint = &iface_desc->endpoint[i].desc;
-
-		if (!dev->bulk_in_endpointAddr &&
-		    (endpoint->bEndpointAddress & USB_DIR_IN) &&
-		    ((endpoint->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK)
-					== USB_ENDPOINT_XFER_BULK)) {
-			// we found a bulk in endpoint   
-			buffer_size = endpoint->wMaxPacketSize;
-			dev->bulk_in_size = buffer_size;
-			dev->bulk_in_endpointAddr = endpoint->bEndpointAddress;
-			dev->bulk_in_buffer = kmalloc(buffer_size, GFP_KERNEL);
-			if (!dev->bulk_in_buffer) {
-				print_alert("Could not allocate bulk_in_buffer");
-				goto error;
-			}
-		}
-
-		if (!dev->bulk_out_endpointAddr &&
-		    !(endpoint->bEndpointAddress & USB_DIR_IN) &&
-		    ((endpoint->bmAttributes & USB_ENDPOINT_XFERTYPE_MASK)
-					== USB_ENDPOINT_XFER_BULK)) {
-			// we found a bulk out endpoint   
-			dev->bulk_out_endpointAddr = endpoint->bEndpointAddress;
-		}
-	}
-	/*
-	if (!(dev->bulk_in_endpointAddr && dev->bulk_out_endpointAddr)) {
-
-		print_alert("Could not find both bulk-in and bulk-out endpoints");
-		goto error;
-	}
-    */  //there are no bulk enpoints in this device (in theory) so why check
-        //for them.  Shoulden't we be looking for isocharus instead???----------------
-    
-	// save our data pointer in this interface device   
-	usb_set_intfdata(interface, dev);
-
-	// we can register the device now, as it is ready   
-	retval = usb_register_dev(interface, &cam_class);
-	if (retval) {
-		// something prevented us from registering this driver   
-		print_alert("Not able to get a minor for this device.");
-		usb_set_intfdata(interface, NULL);
-		goto error;
-	}
-
-    // usb_set_interface (dev, interface->desc.bInterfaceNumber, activeInterface); ???
+    interface = &intf->altsetting[n];
+    altSetNum = interface->desc.bAlternateSetting;
+    if(interface->desc.bInterfaceClass == USB_CLASS_VIDEO &&
+                                    interface->desc.bInterfaceSubClass ==2){
+       	// save our data pointer in this interface device   
+        usb_set_intfdata(interface, dev);
+        
+        // we can register the device now, as it is ready   
+	    retval = usb_register_dev(intf, &cam_class);
+	    if (retval) {
+		    // something prevented us from registering this driver   
+		    print_alert("Not able to get a minor for this device.");
+		    usb_set_intfdata(interface, NULL);
+		    goto error;
+	    }
+	    usb_set_interface (dev, 1,4); //from doc, comes from reverse engineering
+    }
+	//TODO init_completion() and completion in callback;
+	
 	// let the user know what node this device is now attached   
 	printk(KERN_WARNING "USB cam device now attached to USBcam-%d", interface->minor);
 	return 0;
@@ -284,6 +247,7 @@ static int cam_probe(struct usb_interface *interface,
 }
 //-----------------------------------------------------------------------------
 void cam_disconnect(struct usb_interface *interface) {
+    //TODO call usb_put_dev() somewhere here -------------------------------------------
 	struct usb_cam *dev;
 	int minor = interface->minor;
 
@@ -352,6 +316,8 @@ long  cam_ioctl  (struct file *file, unsigned int cmd, unsigned long arg) {
     
     struct usb_interface *interface = file->private_data;
     struct usb_device *dev = usb_get_intfdata(interface);
+    struct usb_host_interface       *iface_desc = private_data->cur_altsetting;
+    unsigned char buff[] = {0x00, 0x00, 0x80, 0xFF};
     
     int retval = 0;
     int tmp    = 0;    
@@ -449,6 +415,21 @@ long  cam_ioctl  (struct file *file, unsigned int cmd, unsigned long arg) {
             
         case IOCTL_PANTILT:
             print_debug("PANTILT");
+            //TODO get arg from user --------------------------------------------------
+            //TODO get endpoint address------------------------------------------------
+            //TODO usb_send_control_pipe
+            retval = usb_control_msg(dev, 0, 0x01, 
+                            USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
+                            0x0100, 0x0900, buff, 4, 0);
+            if(retval != 4){
+                if(retval >= 0){
+                    print_alert("not all bytes transfered");
+                    return -EIO;
+                }
+                print_alert("usb_control_msg error");
+                return retval;
+            }
+            
             // if 0x60  -> IOCTL_PANTILT
             /*
             usb_device          Votre device USB
@@ -481,6 +462,8 @@ long  cam_ioctl  (struct file *file, unsigned int cmd, unsigned long arg) {
              size                1
              timeout             0
              */
+           case  IOCTL_PANTILT_RESET:
+           
             return SUCCESS;
             
         default : return -ENOTTY;  
