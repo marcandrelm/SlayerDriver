@@ -200,7 +200,7 @@ static int cam_probe(struct usb_interface *intf,
                const struct usb_device_id *id) {
 	struct usb_cam                  *dev = NULL;
 	const struct usb_host_interface *interface;
-    int n, altSetNum;
+    int n, error = 0, altSetNum;
 	int retval = -ENOMEM;
 	
 	print_debug("%s \n",__FUNCTION__);
@@ -234,7 +234,8 @@ static int cam_probe(struct usb_interface *intf,
 	    usb_set_interface (dev->udev, 1,4); //from doc, comes from reverse engineering
     }
     else{
-        retval = -1; //TODO find something better
+        print_alert("can not find proper descriptors");
+        retval = -42; //TODO find something better
         goto error;
     }
 	//TODO init_completion() and completion in callback;
