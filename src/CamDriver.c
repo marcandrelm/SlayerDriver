@@ -200,9 +200,7 @@ static int cam_probe(struct usb_interface *intf,
                const struct usb_device_id *id) {
 	struct usb_cam                  *dev = NULL;
 	const struct usb_host_interface *interface;
-	struct usb_endpoint_descriptor  *endpoint;
-	size_t buffer_size;
-    int n, m, altSetNum, activeInterface = -1;
+    int n, altSetNum;
 	int retval = -ENOMEM;
 	
 	print_debug("%s \n",__FUNCTION__);
@@ -215,7 +213,7 @@ static int cam_probe(struct usb_interface *intf,
 	}
 	memset(dev, 0x00, sizeof (*dev));
 	kref_init(&dev->kref);
-
+	
 	dev->udev = usb_get_dev(interface_to_usbdev(intf)); 
 
     interface = &intf->altsetting[n];
@@ -223,22 +221,26 @@ static int cam_probe(struct usb_interface *intf,
     if(interface->desc.bInterfaceClass == USB_CLASS_VIDEO &&
                                     interface->desc.bInterfaceSubClass ==2){
        	// save our data pointer in this interface device   
-        usb_set_intfdata(interface, dev);
+        usb_set_intfdata(intf, dev->udev);
         
         // we can register the device now, as it is ready   
 	    retval = usb_register_dev(intf, &cam_class);
 	    if (retval) {
 		    // something prevented us from registering this driver   
 		    print_alert("Not able to get a minor for this device.");
-		    usb_set_intfdata(interface, NULL);
+		    usb_set_intfdata(intf, NULL);
 		    goto error;
 	    }
-	    usb_set_interface (dev, 1,4); //from doc, comes from reverse engineering
+	    usb_set_interface (dev->udev, 1,4); //from doc, comes from reverse engineering
+    }
+    else{
+        retval = -1; //TODO find something better
+        goto error;
     }
 	//TODO init_completion() and completion in callback;
 	
 	// let the user know what node this device is now attached   
-	printk(KERN_WARNING "USB cam device now attached to USBcam-%d", interface->minor);
+	printk(KERN_WARNING "USB cam device now attached to USBcam-%d", intf->minor);
 	return 0;
 
     error:
@@ -316,7 +318,7 @@ long  cam_ioctl  (struct file *file, unsigned int cmd, unsigned long arg) {
     
     struct usb_interface *interface = file->private_data;
     struct usb_device *dev = usb_get_intfdata(interface);
-    struct usb_host_interface       *iface_desc = private_data->cur_altsetting;
+    struct usb_host_interface   *iface_desc = interface->cur_altsetting;
     unsigned char buff[] = {0x00, 0x00, 0x80, 0xFF};
     
     int retval = 0;
