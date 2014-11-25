@@ -200,7 +200,7 @@ static int cam_probe(struct usb_interface *intf,
                const struct usb_device_id *id) {
 	struct usb_cam                  *dev = NULL;
 	const struct usb_host_interface *interface;
-    int n, error = 0, altSetNum;
+    int n, altSetNum;
 	int retval = -ENOMEM;
 	
 	print_debug("%s \n",__FUNCTION__);
@@ -235,7 +235,7 @@ static int cam_probe(struct usb_interface *intf,
     }
     else{
         print_alert("can not find proper descriptors");
-        retval = -42; //TODO find something better
+        retval = -ENXIO; //No class found
         goto error;
     }
 	//TODO init_completion() and completion in callback;
@@ -318,7 +318,7 @@ int cam_release(struct inode *inode, struct file *file) {
 long  cam_ioctl  (struct file *file, unsigned int cmd, unsigned long arg) {
     
     struct usb_interface *interface = file->private_data;
-    struct usb_device *dev = usb_get_intfdata(interface);
+    struct usb_device *dev = usb_get_dev(interface_to_usbdev(interface));
     struct usb_host_interface   *iface_desc = interface->cur_altsetting;
     unsigned char buff[] = {0x00, 0x00, 0x80, 0xFF};
     
@@ -420,10 +420,10 @@ long  cam_ioctl  (struct file *file, unsigned int cmd, unsigned long arg) {
             print_debug("PANTILT");
             //TODO get arg from user --------------------------------------------------
             //TODO get endpoint address------------------------------------------------
-            //TODO usb_send_control_pipe
-            retval = usb_control_msg(dev, 0, 0x01, 
+            //TODO usb_sndctrlpipe
+            retval = usb_control_msg(dev, usb_sndctrlpipe(dev,0), 0x01, 
                             USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
-                            0x0100, 0x0900, buff, 4, 0);
+                            0x0100, 0x0900, buff, 4*sizeof(char), 0);
             if(retval != 4){
                 if(retval >= 0){
                     print_alert("not all bytes transfered");
