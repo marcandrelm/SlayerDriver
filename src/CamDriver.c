@@ -419,8 +419,6 @@ long  cam_ioctl  (struct file *file, unsigned int cmd, unsigned long arg) {
         case IOCTL_PANTILT:
             print_debug("PANTILT");
             //TODO get arg from user --------------------------------------------------
-            //TODO get endpoint address------------------------------------------------
-            //TODO usb_sndctrlpipe
             retval = usb_control_msg(dev, usb_sndctrlpipe(dev,0), 0x01, 
                             USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
                             0x0100, 0x0900, buff, 4*sizeof(char), 0);
@@ -433,25 +431,8 @@ long  cam_ioctl  (struct file *file, unsigned int cmd, unsigned long arg) {
                 return retval;
             }
             
-            // if 0x60  -> IOCTL_PANTILT
-            /*
-            usb_device          Votre device USB
-            pipe                Endpoint #0 de type SND
-            request             0x01
-            requestType         USB_DIR_OUT | USB_TYPE_CLASS |
-                                USB_RECIP_INTERFACE
-            value               0x0100
-            index               0x0900
-            data                up/down/left/right
-            size                4
-            timeout             0 
-            
-            unsigned int up[4]    = { 0x00, 0x00, 0x80, 0xFF };
-            unsigned int down[4]  = { 0x00, 0x00, 0x80, 0x00 };
-            unsigned int Left[4]  = { 0x80, 0x00, 0x00, 0x00 };
-            unsigned int Right[4] = { 0x80, 0xFF, 0x00, 0x00 };
-            */
-            
+
+           case  IOCTL_PANTILT_RESET:            
             // if 0x61  -> IOCTL_PANTILT_RESET
             /*
              usb_device          Votre device USB
@@ -465,7 +446,7 @@ long  cam_ioctl  (struct file *file, unsigned int cmd, unsigned long arg) {
              size                1
              timeout             0
              */
-           case  IOCTL_PANTILT_RESET:
+
            
             return SUCCESS;
             
