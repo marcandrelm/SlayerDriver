@@ -699,6 +699,7 @@ deps_/home/ens/AJ74860/Documents/UsbCamDriver/SlayerDriver/src/CamDriver.o := \
   include/linux/uio.h \
   include/linux/pm_runtime.h \
   include/linux/uaccess.h \
+  /home/ens/AJ74860/Documents/UsbCamDriver/SlayerDriver/src/usbvideo.h \
 
 /home/ens/AJ74860/Documents/UsbCamDriver/SlayerDriver/src/CamDriver.o: $(deps_/home/ens/AJ74860/Documents/UsbCamDriver/SlayerDriver/src/CamDriver.o)
 

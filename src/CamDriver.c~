@@ -36,10 +36,6 @@
 */
 
 // Inclusion [Incl] -----------------------------------------------------------
-// #include <linux/config.h> //does not exist
-// #include "/usr/src/linux-headers-3.2.34etsele/include/linux/config.h"
-//does not exist
-
 #include <linux/kernel.h>
 #include <linux/errno.h>
 #include <linux/init.h>
@@ -50,6 +46,12 @@
 #include <linux/semaphore.h>
 #include <linux/usb.h>
 #include <linux/uaccess.h>
+//#ifdef ()
+//#include <linux/sched/rt.h>
+//#include <linux/export.h>
+//#endif
+
+#include "usbvideo.h"
 
 // Licence [Lic] --------------------------------------------------------------
 MODULE_AUTHOR  ("M-A. Lf. M., C.-A. G.");
@@ -136,6 +138,8 @@ struct usb_cam {
 // Enumeration [Enum] ---------------------------------------------------------
 
 // Function [Func] ------------------------------------------------------------
+int  __init cam_init(void);
+void __exit cam_exit(void);
 
 static int ele784_open (struct inode *inode, struct file *file);
 int        cam_release (struct inode *inode, struct file *file);
@@ -166,8 +170,7 @@ struct file_operations cam_fops = {
 };
 
 struct usb_driver cam_driver = {
-	//.owner          = THIS_MODULE, //dosen't seem needed? Gives compile error
-	.name           = "ELE784-camdriver",
+	.name           = DRIVER_NAME,
 	.id_table       = cam_table,
 	.probe          = cam_probe,
 	.disconnect     = cam_disconnect,
@@ -178,7 +181,7 @@ struct usb_driver cam_driver = {
   and to have the device registered with devfs and the driver core
 */
 struct usb_class_driver cam_class = {
-	.name = "elecam%d",
+	.name = (DRIVER_NAME "%d"),
 	.fops = &cam_fops,
 	.minor_base = USB_CAM_MINOR_BASE,
 };
@@ -187,8 +190,8 @@ static DEFINE_SPINLOCK(cam_lock);
 
 // Function definition [Fdef] -------------------------------------------------
 
-module_init (USB_CAM_init);
-module_exit (USB_CAM_exit);
+module_init (cam_init);
+module_exit (cam_exit);
 
 MODULE_DEVICE_TABLE (usb, cam_table); // Hotplug detect
 
@@ -201,15 +204,26 @@ MODULE_DEVICE_TABLE (usb, cam_table); // Hotplug detect
    note: usb_register is not used as KBUILD_MODNAME
    		 is not handled properly with Eclipse
 */
-int __init USB_CAM_init(void) {
+int __init cam_init(void) {
 	int retval;
 
 	print_debug("%s->Start\n",__FUNCTION__);
     retval = usb_register_driver(&cam_driver,THIS_MODULE, DRIVER_NAME);
 	if (retval) {
-	    printk(KERN_ALERT"%s : failed with error %d\n\r", __FUNCTION__,retval);
+	    print_alert("failed with error %d\n", __FUNCTION__,retval);
 	    return retval;
 	}
+
+    // Debug print for user space application
+    print_warn("ioctl functions");
+    print_warn("IOCTL_GET           : 0x%08x", IOCTL_GET);
+    print_warn("IOCTL_SET           : 0x%08x", IOCTL_SET);
+    print_warn("IOCTL_STREAMON      : 0x%08x", IOCTL_STREAMON);
+    print_warn("IOCTL_STREAMOFF     : 0x%08x", IOCTL_STREAMOFF);
+    print_warn("IOCTL_GRAB          : 0x%08x", IOCTL_GRAB);
+    print_warn("IOCTL_PANTILT       : 0x%08x", IOCTL_PANTILT);
+    print_warn("IOCTL_PANTILT_RESET : 0x%08x", IOCTL_PANTILT_RESET);
+
 	print_debug("%s->Done\n", __FUNCTION__);
 	return retval;
 }
@@ -218,7 +232,7 @@ int __init USB_CAM_init(void) {
    func descp..
 
 */
-void __exit USB_CAM_exit(void) {
+void __exit cam_exit(void) {
 	print_debug("%s->Start\n",__FUNCTION__);
 	usb_deregister(&cam_driver);
 	print_debug("%s->Done\n",__FUNCTION__);
@@ -230,16 +244,16 @@ void __exit USB_CAM_exit(void) {
 */
 static int cam_probe(struct usb_interface *intf,
                const struct usb_device_id *id) {
-	struct usb_cam                  *dev = NULL;
+	struct usb_cam *dev;
 	const struct usb_host_interface *interface;
-	int retval = -ENOMEM;
+	int retval;
 
 	print_debug("%s->Start\n",__FUNCTION__);
 
 	dev = kmalloc(sizeof(struct usb_cam), GFP_KERNEL);
 	if (dev == NULL) {
 		print_alert("Out of memory");
-		goto error;
+		return -ENOMEM;
 	}
 	memset(dev, 0x00, sizeof (*dev));
 	kref_init(&dev->kref);
@@ -249,32 +263,32 @@ static int cam_probe(struct usb_interface *intf,
 	dev->udev = usb_get_dev(interface_to_usbdev(intf));
 
     interface = &intf->altsetting[0];
-    if(interface->desc.bInterfaceClass == USB_CLASS_VIDEO &&
-                                    interface->desc.bInterfaceSubClass ==2){
-       	// save our data pointer in this interface device
+    if (interface->desc.bInterfaceClass    == USB_CLASS_VIDEO &&
+       	interface->desc.bInterfaceSubClass == SC_VIDEOSTREAMING) {
+
         usb_set_intfdata(intf, dev->udev);
 
-        // we can register the device now, as it is ready
 	    retval = usb_register_dev(intf, &cam_class);
 	    if (retval) {
-		    // something prevented us from registering this driver
 		    print_alert("Not able to get a minor for this device.");
 		    usb_set_intfdata(intf, NULL);
-		    goto error;
+		    goto ERROR;
 	    }
-	    usb_set_interface (dev->udev, 1,4); //from doc, comes from reverse engineering
-    }
-    else{
+
+	    usb_set_interface (dev->udev, TARGET_INTERFACE, TARGET_CONFIG);
+
+    } else {
         print_alert("can not find proper descriptors");
         retval = -EBADR;
-        goto error;
+        goto ERROR;
     }
 
-	print_debug("USBnow attached to %s-%d", DRIVER_NAME, intf->minor);
+	print_debug("USB attached to %s-%d", DRIVER_NAME, intf->minor);
 	return SUCCESS;
 
-    error:
+    ERROR:
 	if (dev) { kref_put(&dev->kref, cam_delete); }
+	kfree(dev);
 	print_debug("%s->Error\n",__FUNCTION__);
 	return retval;
 }
@@ -295,12 +309,10 @@ void cam_disconnect(struct usb_interface *interface) {
 	dev = usb_get_intfdata(interface);
 	usb_set_intfdata(interface, NULL);
 
-	// give back our minor
 	usb_deregister_dev(interface, &cam_class);
 
 	spin_unlock(&cam_lock);
 
-	// decrement our usage count
 	kref_put(&dev->kref, cam_delete);
 
 	print_debug("%s #%d now disconnected", DRIVER_NAME, minor);
@@ -340,16 +352,6 @@ static int ele784_open(struct inode *inode, struct file *file)
     	print_alert("Unable to open device");
         return -ENODEV;
     }
-
-    // Debug print for user space application
-    print_warn("ioctl functions");
-    print_warn("IOCTL_GET           : 0x%08x", IOCTL_GET);
-    print_warn("IOCTL_SET           : 0x%08x", IOCTL_SET);
-    print_warn("IOCTL_STREAMON      : 0x%08x", IOCTL_STREAMON);
-    print_warn("IOCTL_STREAMOFF     : 0x%08x", IOCTL_STREAMOFF);
-    print_warn("IOCTL_GRAB          : 0x%08x", IOCTL_GRAB);
-    print_warn("IOCTL_PANTILT       : 0x%08x", IOCTL_PANTILT);
-    print_warn("IOCTL_PANTILT_RESET : 0x%08x", IOCTL_PANTILT_RESET);
 
     file->private_data = intf;
     print_debug("%s->Done\n",__FUNCTION__);
