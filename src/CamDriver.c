@@ -88,7 +88,7 @@ MODULE_DESCRIPTION("ELE784: laboratory 2\nCamera USB driver");
 #define IOCTL_STREAMOFF         _IOW (BUFF_IOC_MAGIC, 0x40, int)
 #define IOCTL_GRAB              _IOR (BUFF_IOC_MAGIC, 0x50, int)
 #define IOCTL_PANTILT           _IOW (BUFF_IOC_MAGIC, 0x60, int)
-#define IOCTL_PANTILT_RESET    _IOW (BUFF_IOC_MAGIC, 0x61, int)
+#define IOCTL_PANTILT_RESET     _IO  (BUFF_IOC_MAGIC, 0x61)
 
 //what is IOCTL, GRAB FOR ????----------------------------------------
 
@@ -200,7 +200,7 @@ static int cam_probe(struct usb_interface *intf,
                const struct usb_device_id *id) {
 	struct usb_cam                  *dev = NULL;
 	const struct usb_host_interface *interface;
-    int n, altSetNum;
+    //int n, altSetNum;
 	int retval = -ENOMEM;
 	
 	print_debug("%s \n",__FUNCTION__);
@@ -216,8 +216,8 @@ static int cam_probe(struct usb_interface *intf,
 	
 	dev->udev = usb_get_dev(interface_to_usbdev(intf)); 
 
-    interface = &intf->altsetting[n];
-    altSetNum = interface->desc.bAlternateSetting;
+    interface = &intf->altsetting[0];
+    //altSetNum = interface->desc.bAlternateSetting;
     if(interface->desc.bInterfaceClass == USB_CLASS_VIDEO &&
                                     interface->desc.bInterfaceSubClass ==2){
        	// save our data pointer in this interface device   
@@ -235,7 +235,7 @@ static int cam_probe(struct usb_interface *intf,
     }
     else{
         print_alert("can not find proper descriptors");
-        retval = -ENXIO; //No class found
+        retval = -EBADR; //No class found
         goto error;
     }
 	//TODO init_completion() and completion in callback;
@@ -324,7 +324,7 @@ long  cam_ioctl  (struct file *file, unsigned int cmd, unsigned long arg) {
     
     int retval = 0;
     int tmp    = 0;    
-    
+    char sendval;
    
     
     //IOC verification (MAGIC_nb/Valid_cmd/UserPtr)
@@ -434,19 +434,18 @@ long  cam_ioctl  (struct file *file, unsigned int cmd, unsigned long arg) {
 
            case  IOCTL_PANTILT_RESET:            
             // if 0x61  -> IOCTL_PANTILT_RESET
-            /*
-             usb_device          Votre device USB
-             pipe                Endpoint #0 de type SND
-             request             0x01
-             requestType         USB_DIR_OUT | USB_TYPE_CLASS |
-                                 USB_RECIP_INTERFACE
-             value               0x0200
-             index               0x0900
-             data                0x03
-             size                1
-             timeout             0
-             */
-
+            sendval = 0x3;
+            retval = usb_control_msg(dev, usb_sndctrlpipe(dev,0), 0x01, 
+                            USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE,
+                            0x0200, 0x0900, &sendval, 1*sizeof(char), 0);
+           if(retval != 1){
+                if(retval >= 0){
+                    print_alert("not all bytes transfered");
+                    return -EIO;
+                }
+                print_alert("usb_control_msg error");
+                return retval;
+            }
            
             return SUCCESS;
             
