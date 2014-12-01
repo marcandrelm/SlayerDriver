@@ -23,16 +23,11 @@ PRINT_STATS  = 0x00002a08
 
 
 #------------------------------------------------------------------------------
-DEVPATH = "/dev/etsele_cdev"
-msg = "There's only one man who would dare give me the raspberry: \n\
-[pulls down helmet as camera zooms in on his face] \n\
-Lone Starr!"
-msg_len = len(msg)
+DEVPATH = "/dev/elecam0"
+
 arg = array.array('L', [0])
 
-fh = open(DEVPATH, 'w', 0);
-fh1= open(DEVPATH, 'r', 0);
-fh.write(msg);
+fh = open(DEVPATH, 'r', 0);
 
 # Save setting
 ioctl(fh, GETBUFSIZE, arg)

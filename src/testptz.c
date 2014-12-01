@@ -17,7 +17,7 @@
 
 
 int main (void){
-    int fd = open("/dev/elecam1", O_RDWR);
+    int fd = open("/dev/elecam*", O_RDWR);
     if(fd<0){
         perror("open");
         return fd;
