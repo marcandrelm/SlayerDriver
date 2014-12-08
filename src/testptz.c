@@ -12,18 +12,24 @@
 #define IOCTL_STREAMOFF         _IOW (BUFF_IOC_MAGIC, 0x40, int)
 #define IOCTL_GRAB              _IOR (BUFF_IOC_MAGIC, 0x50, int)
 #define IOCTL_PANTILT           _IOW (BUFF_IOC_MAGIC, 0x60, int)
-#define IOCTL_PANTILT_RESET     _IOW (BUFF_IOC_MAGIC, 0x61, int)
+#define IOCTL_PANTILT_RESET     _IO  (BUFF_IOC_MAGIC, 0x61)
 
 
 
 int main (void){
-    int fd = open("/dev/elecam5", O_RDWR);
+    int fd = open("/dev/elecam*", O_RDWR);
     if(fd<0){
         perror("open");
         return fd;
     }
-    unsigned char arg[] = {0x00, 0x00, 0x80, 0xFF};
-    if(ioctl(fd, IOCTL_PANTILT, &arg) <0){
+    //unsigned char arg[] = {0x00, 0x00, 0x80, 0xFF};
+    /*if(ioctl(fd, IOCTL_PANTILT, &arg) <0){
+        perror("IOCTL");
+        return -1;
+    }
+    */
+    //arg[0] = 0x03; 
+    if(ioctl(fd, IOCTL_PANTILT_RESET, 0) <0){
         perror("IOCTL");
         return -1;
     }
