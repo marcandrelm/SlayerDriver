@@ -1,4 +1,4 @@
-TARGET_MODULE:=CamDriver
+TARGET_MODULE:=CharDriver
 
 # If we are running by kernel building system
 ifneq ($(KERNELRELEASE),)
@@ -16,12 +16,6 @@ all :
 clean:
 # run kernel build system to cleanup in current directory
 	$(MAKE) -C $(BUILDSYSTEM_DIR) M=$(PWD) clean
-	
-clean_soft:
-	-rm -f *.o .*.cmd .*.flags *.mod.c Module.symvers modules.order
-	-rm -rf .tmp_versions
-
-install : unload all clean_soft load
 
 load:
 	sudo insmod ./$(TARGET_MODULE).ko
@@ -29,8 +23,4 @@ load:
 unload:
 	sudo rmmod ./$(TARGET_MODULE).ko
 
-
-UVC:
-# remove concurent camera driver
-	sudo rmmod uvcvideo
 endif
