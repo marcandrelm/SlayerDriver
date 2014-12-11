@@ -1,1 +1,0 @@
-cmd_/home/ens/AJ74860/Documents/UsbCamDriver/SlayerDriver/src/CamDriver.ko := ld -r -m elf_i386 -T /usr/src/linux-source-3.2.0/scripts/module-common.lds --build-id  -o /home/ens/AJ74860/Documents/UsbCamDriver/SlayerDriver/src/CamDriver.ko /home/ens/AJ74860/Documents/UsbCamDriver/SlayerDriver/src/CamDriver.o /home/ens/AJ74860/Documents/UsbCamDriver/SlayerDriver/src/CamDriver.mod.o
